@@ -7,46 +7,47 @@ module.exports = async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
     try {
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent("مها فتوني")}&hl=ar&gl=EG&ceid=EG:ar`;
+        const query = encodeURIComponent("مها فتوني");
+        const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=ar&gl=EG&ceid=EG:ar`;
+        
         const { data: rssData } = await axios.get(rssUrl);
         const dom = new JSDOM(rssData, { contentType: "text/xml" });
-        const items = Array.from(dom.window.document.querySelectorAll("item")).slice(0, 10);
+        const items = Array.from(dom.window.document.querySelectorAll("item")).slice(0, 6);
 
         const results = await Promise.all(items.map(async (item) => {
             const link = item.querySelector("link").textContent;
-            const pubDate = new Date(item.querySelector("pubDate").textContent).toLocaleDateString('ar-EG');
             const rawTitle = item.querySelector("title").textContent;
-            
-            // فصل العنوان عن اسم الموقع بدقة
-            const titleParts = rawTitle.split(' - ');
-            const sourceName = titleParts.pop(); 
-            const cleanTitle = titleParts.join(' - ');
+            const parts = rawTitle.split(' - ');
+            const source = parts.pop();
+            const title = parts.join(' - ');
 
             try {
-                const { data: html } = await axios.get(link, { timeout: 5000, headers: {'User-Agent': 'Mozilla/5.0'} });
-                const articleDom = new JSDOM(html);
-                const doc = articleDom.window.document;
+                // جلب محتوى الخبر الحقيقي لجلب الصورة والنص
+                const { data: html } = await axios.get(link, { 
+                    timeout: 3000, 
+                    headers: { 'User-Agent': 'Mozilla/5.0' } 
+                });
+                const artDom = new JSDOM(html);
+                const doc = artDom.window.document;
 
-                // سحب صورة الغلاف الأصلية HD
                 const image = doc.querySelector('meta[property="og:image"]')?.content || 
                               doc.querySelector('meta[name="twitter:image"]')?.content || 
                               'logo.png';
 
-                // سحب الخبر كاملاً عبر تجميع الفقرات
-                const paragraphs = Array.from(doc.querySelectorAll('p'))
+                const content = Array.from(doc.querySelectorAll('p'))
                     .map(p => p.textContent.trim())
-                    .filter(t => t.length > 40)
-                    .slice(0, 12)
+                    .filter(t => t.length > 50)
+                    .slice(0, 8)
                     .join('<br><br>');
 
-                return { title: cleanTitle, source: sourceName, image, content: paragraphs, date: pubDate, link };
+                return { title, source, image, content, link };
             } catch (e) {
-                return { title: cleanTitle, source: sourceName, image: 'logo.png', content: "انقر لقراءة الخبر من المصدر الأصلي", date: pubDate, link };
+                return { title, source, image: 'logo.png', content: "اضغط على المصدر لقراءة الخبر بالكامل", link };
             }
         }));
 
         res.status(200).json(results);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "فشل السيرفر في جلب البيانات" });
     }
 };
